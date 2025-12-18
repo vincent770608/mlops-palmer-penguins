@@ -1,5 +1,5 @@
 # 使用 Google 官方優化過的 TF 映像檔
-FROM asia-docker.pkg.dev/vertex-ai/training/tf-cpu.2-12.py310:latest
+FROM asia-docker.pkg.dev/vertex-ai/training/tf-cpu.2-11:latest
 
 WORKDIR /app
 
