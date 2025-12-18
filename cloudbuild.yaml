@@ -17,7 +17,7 @@ steps:
     - '-c'
     - |
       # 安裝依賴 (同一行執行，確保環境一致)
-      pip install kfp==2.15.2 google-cloud-pipeline-components google-cloud-aiplatform
+      pip install kfp==2.12.2 google-cloud-pipeline-components==2.22.0 google-cloud-aiplatform==1.132.0
       
       # 編譯 Pipeline (產生 pipeline.json)
       python pipeline.py \
@@ -37,7 +37,7 @@ steps:
           }
       )
       job.submit(
-          service_account="${_MLOPS_SERVICE_ACCOUNT}"
+          service_account='${_MLOPS_SERVICE_ACCOUNT}'
       )
       "
 
