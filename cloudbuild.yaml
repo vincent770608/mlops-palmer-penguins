@@ -7,22 +7,7 @@ steps:
 - name: 'gcr.io/cloud-builders/docker'
   args: ['push', 'asia-east1-docker.pkg.dev/$PROJECT_ID/mlops-palmer-penguins/penguin-train:$SHORT_SHA']
 
-# 3. 安裝 Python 套件以編譯 Pipeline
-- name: 'python:3.12'
-  entrypoint: 'pip'
-  args: ['install', 'kfp==2.15.2', 'google-cloud-aiplatform']
-
-# 4. 編譯 Pipeline (產生 pipeline.json)
-- name: 'python:3.12'
-  entrypoint: 'python'
-  args:
-    - 'pipeline.py'
-    - '--project_id'
-    - '$PROJECT_ID'      # Cloud Build 內建變數 (你的 GCP Project ID)
-    - '--bucket_name'
-    - '${_BUCKET_NAME}'  # 自定義變數 (注意前面有底線)
-
-# 5. 提交 Pipeline Job 到 Vertex AI (關鍵需求 2)
+# 3. 提交 Pipeline Job 到 Vertex AI (關鍵需求 2)
 # 我們直接用 gcloud 指令或 python script 提交，這裡用 python script 比較簡單
 - name: 'python:3.12'
   entrypoint: 'bash'
