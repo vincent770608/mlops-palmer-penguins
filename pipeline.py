@@ -17,12 +17,14 @@ TRAINING_IMAGE_URI = os.environ.get("TRAINING_IMAGE_URI", "placeholder")
 def custom_training_job(
     project_id: str,
     model_dir: str,
+    bucket_name: str,
 ):
     return dsl.ContainerSpec(
         image=TRAINING_IMAGE_URI,
         args=[
             '--project_id', project_id,
             '--model_dir', model_dir,
+            '--bucket_name', bucket_name,
         ]
     )
 
@@ -41,7 +43,8 @@ def pipeline(
     # 實例化 component
     train_task = custom_training_job(
         project_id=project_id,
-        model_dir=model_dir
+        model_dir=model_dir,
+        bucket_name=bucket_name,
     )
     # 這裡覆寫 image，使用 CI/CD 傳進來的 image_uri
     # train_task.image = image_uri
