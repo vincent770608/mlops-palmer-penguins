@@ -36,11 +36,11 @@ job = aip.PipelineJob(
     parameter_values={
         'project_id': '$PROJECT_ID',
         'bucket_name': '${_BUCKET_NAME}', # 這裡也要傳
-        'image_uri': 'asia-east1-docker.pkg.dev/$PROJECT_ID/mlops-repo/penguin-train:$SHORT_SHA'
+        'image_uri': 'asia-east1-docker.pkg.dev/$PROJECT_ID/mlops-palmer-penguins/penguin-train:$SHORT_SHA'
     }
 );
 job.submit();
 "]
 
 images:
-- 'asia-central1-docker.pkg.dev/$PROJECT_ID/mlops-repo/penguin-train:$SHORT_SHA'
+- 'asia-central1-docker.pkg.dev/$PROJECT_ID/mlops-palmer-penguins/penguin-train:$SHORT_SHA'
