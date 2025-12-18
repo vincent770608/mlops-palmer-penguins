@@ -25,26 +25,36 @@ steps:
 # 5. 提交 Pipeline Job 到 Vertex AI (關鍵需求 2)
 # 我們直接用 gcloud 指令或 python script 提交，這裡用 python script 比較簡單
 - name: 'python:3.12'
-  entrypoint: 'python'
-  args: ['-c', "
-import google.cloud.aiplatform as aip;
-aip.init(project='$PROJECT_ID', location='asia-east1');
-job = aip.PipelineJob(
-    display_name='penguin-pipeline-$SHORT_SHA',
-    template_path='pipeline.json',
-    pipeline_root='gs://${_BUCKET_NAME}/pipeline_root', 
-    parameter_values={
-        'project_id': '$PROJECT_ID',
-        'bucket_name': '${_BUCKET_NAME}', # 這裡也要傳
-        'image_uri': 'asia-east1-docker.pkg.dev/$PROJECT_ID/mlops-palmer-penguins/penguin-train:$SHORT_SHA'
-    }
-);
-job.submit();
-"]
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      # 安裝依賴 (同一行執行，確保環境一致)
+      pip install kfp==2.15.2 google-cloud-aiplatform
+      
+      # 編譯 Pipeline (產生 pipeline.json)
+      python pipeline.py \
+        --project_id $PROJECT_ID \
+        --bucket_name ${_BUCKET_NAME}
+    
+      python -c "
+      import google.cloud.aiplatform as aip;
+      aip.init(project='$PROJECT_ID', location='asia-east1');
+      job = aip.PipelineJob(
+          display_name='penguin-pipeline-$SHORT_SHA',
+          template_path='pipeline.json',
+          pipeline_root='gs://${_BUCKET_NAME}/pipeline_root', 
+          parameter_values={
+              'project_id': '$PROJECT_ID',
+              'bucket_name': '${_BUCKET_NAME}', 
+              'image_uri': 'asia-east1-docker.pkg.dev/$PROJECT_ID/mlops-palmer-penguins/penguin-train:$SHORT_SHA'
+          }
+      )
+      job.submit();
+      "
 
 images:
 - 'asia-central1-docker.pkg.dev/$PROJECT_ID/mlops-palmer-penguins/penguin-train:$SHORT_SHA'
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  
