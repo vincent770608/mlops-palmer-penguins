@@ -15,7 +15,7 @@ steps:
     - '-c'
     - |
       # 安裝依賴 (同一行執行，確保環境一致)
-      pip install kfp==2.15.2 google-cloud-aiplatform
+      pip install kfp==2.15.2 google-cloud-pipeline-components google-cloud-aiplatform
       
       # 編譯 Pipeline (產生 pipeline.json)
       python pipeline.py \
