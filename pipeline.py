@@ -5,13 +5,12 @@ from kfp import dsl
 from kfp.v2 import compiler
 
 
-# 設定變數 (請修改成你的 Project ID)
-PROJECT_ID = "你的-GCP-PROJECT-ID"
-BUCKET_NAME = f"gs://{PROJECT_ID}-mlops-staging"
-PIPELINE_ROOT = f"{BUCKET_NAME}/pipeline_root"
-
 @dsl.component(base_image="python:3.12")
-def custom_training_job(project_id: str, model_dir: str):
+def custom_training_job(
+    project_id: str,
+    model_dir: str,
+):
+    # 這裡只是 Placeholder，實際執行邏輯在 Docker Image 裡
     pass
 
 
