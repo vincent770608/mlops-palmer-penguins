@@ -38,7 +38,6 @@ def custom_training_job(
 @dsl.pipeline(name="penguin-training-pipeline")
 def pipeline(
         project_id: str,
-        bucket_name: str,
         serving_container_image_uri: str = "asia-docker.pkg.dev/vertex-ai/prediction/tf2-cpu.2-16:latest"
 ):
     # 使用傳入的 bucket_name 變數
