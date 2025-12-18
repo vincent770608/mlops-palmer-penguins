@@ -10,3 +10,5 @@ static/
 data/
 model/
 venv/
+run_pipeline.py
+pipeline.json

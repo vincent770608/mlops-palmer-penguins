@@ -1,54 +1,79 @@
-import os
 import argparse
-from google.cloud import aiplatform
 from kfp import dsl
-from kfp.v2 import compiler
+from kfp import compiler
+# 引入 Importer 與 Model 定義
+from kfp.dsl import importer
+from google_cloud_pipeline_components.types import artifact_types
+
+# Google 官方組件庫
+from google_cloud_pipeline_components.v1.model import ModelUploadOp
+from google_cloud_pipeline_components.v1.endpoint import EndpointCreateOp, ModelDeployOp
 
 
-@dsl.component(base_image="python:3.12")
+@dsl.container_component
 def custom_training_job(
     project_id: str,
     model_dir: str,
 ):
-    # 這裡只是 Placeholder，實際執行邏輯在 Docker Image 裡
-    pass
+    return dsl.ContainerSpec(
+        image='gcr.io/my-project/placeholder:latest',
+        args=[
+            '--project_id', project_id,
+            '--model_dir', model_dir,
+        ]
+    )
 
 
 @dsl.pipeline(name="penguin-training-pipeline")
 def pipeline(
         project_id: str,
-        bucket_name: str,  # 新增這個參數
+        bucket_name: str,
         image_uri: str,
-        serving_container_image_uri: str = "asia-docker.pkg.dev/vertex-ai/prediction/tf2-cpu.2-12:latest"
+        serving_container_image_uri: str = "asia-docker.pkg.dev/vertex-ai/prediction/tf2-cpu.2-16:latest"
 ):
     # 使用傳入的 bucket_name 變數
     pipeline_root = f"gs://{bucket_name}/pipeline_root"
+    model_dir = f"{pipeline_root}/model_output"
 
     # 步驟 1: 訓練
-    train_op = dsl.ContainerOp(
-        name="train-model",
-        image=image_uri, # 這會由 CI/CD 傳入最新的 Image TAG
-        arguments=[
-            "--project_id", project_id,
-            "--model_dir", f"{pipeline_root}/model_output",
-        ],
-    ).set_caching_options(False) # 為了 Demo 方便，關閉快取
+    # 實例化 component
+    train_task = custom_training_job(
+        project_id=project_id,
+        model_dir=model_dir
+    )
+    # [關鍵修改] 這裡覆寫 image，使用 CI/CD 傳進來的 image_uri
+    train_task.image = image_uri
+    # 關閉快取 (Demo用)
+    train_task.set_caching_options(False)
 
-    # 步驟 2: 上傳模型 (記得這裡也要改成 pipeline_root)
-    model_upload_op = aiplatform.ModelUploadOp(
+    # Step 1.5: 將路徑轉為 Artifact (關鍵修正)
+    import_unmanaged_model_task = importer(
+        artifact_uri=model_dir,
+        artifact_class=artifact_types.UnmanagedContainerModel,
+        reimport=False,
+        metadata={
+            "containerSpec": {
+                "imageUri": serving_container_image_uri
+            }
+        }
+    ).after(train_task)
+
+    # 步驟 2: 上傳模型
+    model_upload_op = ModelUploadOp(
         project=project_id,
         display_name="penguin-model",
-        artifact_uri=f"{pipeline_root}/model_output",
-        serving_container_image_uri=serving_container_image_uri,
-    ).after(train_op)
+        # 使用 importer 的輸出
+        unmanaged_container_model=import_unmanaged_model_task.output,
+    ).after(import_unmanaged_model_task)
 
-    # 步驟 3: 自動部署到 Endpoint (關鍵需求 4)
-    endpoint_create_op = aiplatform.EndpointCreateOp(
+    # 步驟 3: 建立 Endpoint
+    endpoint_create_op = EndpointCreateOp(
         project=project_id,
         display_name="penguin-endpoint",
     ).after(model_upload_op)
 
-    aiplatform.ModelDeployOp(
+    # 步驟 4: 部署模型
+    ModelDeployOp(
         model=model_upload_op.outputs["model"],
         endpoint=endpoint_create_op.outputs["endpoint"],
         dedicated_resources_machine_type="n1-standard-2",
@@ -58,18 +83,18 @@ def pipeline(
 
 
 if __name__ == "__main__":
-    # 使用 argparse 讓 Python 腳本可以從外部接收參數
     parser = argparse.ArgumentParser()
     parser.add_argument('--project_id', type=str, required=True)
     parser.add_argument('--bucket_name', type=str, required=True)
     args = parser.parse_args()
 
-    # 編譯時將參數寫入 json 預設值
     compiler.Compiler().compile(
         pipeline_func=pipeline,
         package_path="pipeline.json",
         pipeline_parameters={
             "project_id": args.project_id,
-            "bucket_name": args.bucket_name
+            "bucket_name": args.bucket_name,
+            # 這裡給一個預設值，避免編譯時報錯，實際執行會被覆寫
+            "image_uri": "placeholder"
         }
     )
