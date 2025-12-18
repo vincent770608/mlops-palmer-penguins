@@ -13,10 +13,10 @@ steps:
   entrypoint: 'bash'
   env:
     - 'TRAINING_IMAGE_URI=asia-east1-docker.pkg.dev/$PROJECT_ID/mlops-palmer-penguins/penguin-train:$SHORT_SHA'
+    - 'BUCKET_NAME=${_BUCKET_NAME}'
   args:
     - '-c'
     - |
-      # 安裝依賴 (同一行執行，確保環境一致)
       pip install kfp==2.12.2 google-cloud-pipeline-components==2.22.0 google-cloud-aiplatform==1.132.0
       
       # 編譯 Pipeline (產生 pipeline.json)
@@ -33,7 +33,6 @@ steps:
           pipeline_root='gs://${_BUCKET_NAME}/pipeline_root', 
           parameter_values={
               'project_id': '$PROJECT_ID',
-              'bucket_name': '${_BUCKET_NAME}',
           }
       )
       job.submit(

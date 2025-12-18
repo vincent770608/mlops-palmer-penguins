@@ -10,7 +10,13 @@ from google_cloud_pipeline_components.v1.model import ModelUploadOp
 from google_cloud_pipeline_components.v1.endpoint import EndpointCreateOp, ModelDeployOp
 
 # 如果沒讀到 (例如本地測試)，就用 placeholder
+# 這樣可以確保路徑是靜態字串，避免 KFP 執行時解析錯誤
 TRAINING_IMAGE_URI = os.environ.get("TRAINING_IMAGE_URI", "placeholder")
+BUCKET_NAME = os.environ.get("BUCKET_NAME", "placeholder_bucket")
+
+# 預先組好路徑
+PIPELINE_ROOT = f"gs://{BUCKET_NAME}/pipeline_root"
+MODEL_DIR = f"{PIPELINE_ROOT}/model_output"
 
 
 @dsl.container_component
@@ -36,15 +42,15 @@ def pipeline(
         serving_container_image_uri: str = "asia-docker.pkg.dev/vertex-ai/prediction/tf2-cpu.2-16:latest"
 ):
     # 使用傳入的 bucket_name 變數
-    pipeline_root = f"gs://{bucket_name}/pipeline_root"
-    model_dir = f"{pipeline_root}/model_output"
+    # pipeline_root = f"gs://{bucket_name}/pipeline_root"
+    # model_dir = f"{pipeline_root}/model_output"
 
     # 步驟 1: 訓練
     # 實例化 component
     train_task = custom_training_job(
         project_id=project_id,
-        model_dir=model_dir,
-        bucket_name=bucket_name,
+        model_dir=MODEL_DIR,
+        bucket_name=BUCKET_NAME,
     )
     # 這裡覆寫 image，使用 CI/CD 傳進來的 image_uri
     # train_task.image = image_uri
@@ -53,7 +59,7 @@ def pipeline(
 
     # Step 1.5: 將路徑轉為 Artifact (關鍵修正)
     import_unmanaged_model_task = importer(
-        artifact_uri=model_dir,
+        artifact_uri=MODEL_DIR,
         artifact_class=artifact_types.UnmanagedContainerModel,
         reimport=False,
         metadata={
@@ -98,6 +104,5 @@ if __name__ == "__main__":
         package_path="pipeline.json",
         pipeline_parameters={
             "project_id": args.project_id,
-            "bucket_name": args.bucket_name,
         }
     )
