@@ -1,13 +1,16 @@
 import argparse
+import os
 from kfp import dsl
 from kfp import compiler
 # 引入 Importer 與 Model 定義
 from kfp.dsl import importer
 from google_cloud_pipeline_components.types import artifact_types
-
 # Google 官方組件庫
 from google_cloud_pipeline_components.v1.model import ModelUploadOp
 from google_cloud_pipeline_components.v1.endpoint import EndpointCreateOp, ModelDeployOp
+
+# 如果沒讀到 (例如本地測試)，就用 placeholder
+TRAINING_IMAGE_URI = os.environ.get("TRAINING_IMAGE_URI", "placeholder")
 
 
 @dsl.container_component
@@ -16,7 +19,7 @@ def custom_training_job(
     model_dir: str,
 ):
     return dsl.ContainerSpec(
-        image='gcr.io/my-project/placeholder:latest',
+        image=TRAINING_IMAGE_URI,
         args=[
             '--project_id', project_id,
             '--model_dir', model_dir,
@@ -28,7 +31,6 @@ def custom_training_job(
 def pipeline(
         project_id: str,
         bucket_name: str,
-        image_uri: str,
         serving_container_image_uri: str = "asia-docker.pkg.dev/vertex-ai/prediction/tf2-cpu.2-16:latest"
 ):
     # 使用傳入的 bucket_name 變數
@@ -41,8 +43,8 @@ def pipeline(
         project_id=project_id,
         model_dir=model_dir
     )
-    # [關鍵修改] 這裡覆寫 image，使用 CI/CD 傳進來的 image_uri
-    train_task.image = image_uri
+    # 這裡覆寫 image，使用 CI/CD 傳進來的 image_uri
+    # train_task.image = image_uri
     # 關閉快取 (Demo用)
     train_task.set_caching_options(False)
 
@@ -94,7 +96,5 @@ if __name__ == "__main__":
         pipeline_parameters={
             "project_id": args.project_id,
             "bucket_name": args.bucket_name,
-            # 這裡給一個預設值，避免編譯時報錯，實際執行會被覆寫
-            "image_uri": "placeholder"
         }
     )
