@@ -1,0 +1,8 @@
+google-cloud-bigquery==3.39.0
+pandas==2.3.3
+pyarrow==22.0.0
+protobuf==6.31.1
+tensorflow==2.20.0
+google-cloud-aiplatform==1.132.0
+scikit-learn==1.8.0
+kfp==2.15.2

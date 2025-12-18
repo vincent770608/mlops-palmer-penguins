@@ -1,0 +1,12 @@
+.env
+*_venv/
+*.ipynb
+__pycache__/
+.vscode/
+# Pycharm
+.idea
+research/data
+static/
+data/
+model/
+venv/
