@@ -44,3 +44,6 @@ job.submit();
 
 images:
 - 'asia-central1-docker.pkg.dev/$PROJECT_ID/mlops-palmer-penguins/penguin-train:$SHORT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
