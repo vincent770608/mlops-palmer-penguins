@@ -23,16 +23,14 @@ MODEL_DIR = f"{PIPELINE_ROOT}/model_output"
 def custom_training_job(
     project_id: str,
     model_dir: str,
-    bucket_name: str,
-    location: str,
+    bucket_name: str
 ):
     return dsl.ContainerSpec(
         image=TRAINING_IMAGE_URI,
         args=[
             '--project_id', project_id,
             '--model_dir', model_dir,
-            '--bucket_name', bucket_name,
-            '--location', location,
+            '--bucket_name', bucket_name
         ]
     )
 
@@ -51,8 +49,7 @@ def pipeline(
     train_task = custom_training_job(
         project_id=project_id,
         model_dir=MODEL_DIR,
-        bucket_name=BUCKET_NAME,
-        location=location
+        bucket_name=BUCKET_NAME
     )
     # 這裡覆寫 image，使用 CI/CD 傳進來的 image_uri
     # train_task.image = image_uri
