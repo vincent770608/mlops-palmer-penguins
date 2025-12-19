@@ -21,8 +21,7 @@ steps:
       
       # 編譯 Pipeline (產生 pipeline.json)
       python pipeline.py \
-        --project_id $PROJECT_ID \
-        --bucket_name ${_BUCKET_NAME}
+        --project_id $PROJECT_ID
     
       python -c "
       import google.cloud.aiplatform as aip;
