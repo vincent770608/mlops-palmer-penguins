@@ -16,7 +16,7 @@ BUCKET_NAME = os.environ.get("BUCKET_NAME", "placeholder_bucket")
 
 # 預先組好路徑
 PIPELINE_ROOT = f"gs://{BUCKET_NAME}/pipeline_root"
-MODEL_DIR = f"{PIPELINE_ROOT}/model_output"
+MODEL_DIR = f"{PIPELINE_ROOT}/model_output/1"
 
 
 @dsl.container_component
