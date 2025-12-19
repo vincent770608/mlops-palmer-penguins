@@ -91,7 +91,7 @@ def pipeline(
         dedicated_resources_machine_type="e2-standard-4",
         dedicated_resources_min_replica_count=1,
         dedicated_resources_max_replica_count=1,
-        service_account="mlops-144@vincent-sandbox-470814.iam.gserviceaccount.com"
+        service_account="mlops-144@vincent-sandbox-470814.iam.gserviceaccount.com",
     )
 
 
