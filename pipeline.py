@@ -16,7 +16,8 @@ BUCKET_NAME = os.environ.get("BUCKET_NAME", "placeholder_bucket")
 
 # 預先組好路徑
 PIPELINE_ROOT = f"gs://{BUCKET_NAME}/pipeline_root"
-MODEL_DIR = f"{PIPELINE_ROOT}/model_output/1"
+MODEL_BASE_DIR = f"{PIPELINE_ROOT}/model_output"  # 模型的主目錄
+MODEL_VERSION_DIR = f"{MODEL_BASE_DIR}/1"
 
 
 @dsl.container_component
@@ -48,7 +49,7 @@ def pipeline(
     # 實例化 component
     train_task = custom_training_job(
         project_id=project_id,
-        model_dir=MODEL_DIR,
+        model_dir=MODEL_VERSION_DIR,
         bucket_name=BUCKET_NAME
     )
     # 這裡覆寫 image，使用 CI/CD 傳進來的 image_uri
@@ -58,12 +59,22 @@ def pipeline(
 
     # Step 1.5: 將路徑轉為 Artifact (關鍵修正)
     import_unmanaged_model_task = importer(
-        artifact_uri=MODEL_DIR,
+        artifact_uri=MODEL_BASE_DIR,
         artifact_class=artifact_types.UnmanagedContainerModel,
         reimport=False,
         metadata={
             "containerSpec": {
-                "imageUri": serving_container_image_uri
+                "imageUri": serving_container_image_uri,
+                "command": ["/usr/bin/tensorflow_model_server"],
+                "args": [
+                    "--port=8500",
+                    "--rest_api_port=8080",
+                    "--model_name=default",
+                    # Vertex AI 會自動替換這個變數
+                    "--model_base_path=$(AIP_STORAGE_URI)"
+                ],
+                "predictRoute": "/v1/models/default:predict",
+                "healthRoute": "/v1/models/default"
             }
         }
     ).after(train_task)

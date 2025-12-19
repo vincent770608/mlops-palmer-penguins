@@ -91,7 +91,11 @@ def train_model(project_id, model_dir, bucket_name):
     # --- 4. 儲存模型 ---
     # 改用 tf.saved_model.save 來確保輸出格式是 SavedModel (資料夾)，
     # 這樣無論在本地(Keras 3)還是雲端(Keras 2)都兼容，且符合 Vertex AI 需求。
-    model.export(model_dir)
+    try:
+        model.export(model_dir)
+    except AttributeError:
+        # 如果環境不小心退回 Keras 2 (TF < 2.16)，export 不存在，改用 save
+        tf.saved_model.save(model, model_dir)
     print(f"Model saved to {model_dir}")
 
 
