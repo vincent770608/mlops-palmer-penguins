@@ -24,6 +24,7 @@ def custom_training_job(
     project_id: str,
     model_dir: str,
     bucket_name: str,
+    location: str,
 ):
     return dsl.ContainerSpec(
         image=TRAINING_IMAGE_URI,
@@ -31,6 +32,7 @@ def custom_training_job(
             '--project_id', project_id,
             '--model_dir', model_dir,
             '--bucket_name', bucket_name,
+            '--location', location,
         ]
     )
 
@@ -43,13 +45,14 @@ def pipeline(
     # 使用傳入的 bucket_name 變數
     # pipeline_root = f"gs://{bucket_name}/pipeline_root"
     # model_dir = f"{pipeline_root}/model_output"
-
+    location = "asia-east1"
     # 步驟 1: 訓練
     # 實例化 component
     train_task = custom_training_job(
         project_id=project_id,
         model_dir=MODEL_DIR,
         bucket_name=BUCKET_NAME,
+        location=location
     )
     # 這裡覆寫 image，使用 CI/CD 傳進來的 image_uri
     # train_task.image = image_uri
@@ -72,6 +75,7 @@ def pipeline(
     model_upload_op = ModelUploadOp(
         project=project_id,
         display_name="penguin-model",
+        location=location,
         # 使用 importer 的輸出
         unmanaged_container_model=import_unmanaged_model_task.output,
     ).after(import_unmanaged_model_task)
@@ -80,13 +84,14 @@ def pipeline(
     endpoint_create_op = EndpointCreateOp(
         project=project_id,
         display_name="penguin-endpoint",
+        location=location
     ).after(model_upload_op)
 
     # 步驟 4: 部署模型
     ModelDeployOp(
         model=model_upload_op.outputs["model"],
         endpoint=endpoint_create_op.outputs["endpoint"],
-        dedicated_resources_machine_type="n1-standard-2",
+        dedicated_resources_machine_type="e2-standard-4",
         dedicated_resources_min_replica_count=1,
         dedicated_resources_max_replica_count=1,
     )
