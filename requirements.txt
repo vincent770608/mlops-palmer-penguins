@@ -1,5 +1,6 @@
 google-cloud-bigquery==3.39.0
 pandas==2.3.3
+numpy==1.26.4
 pyarrow==22.0.0
 protobuf==4.25.3
 tensorflow==2.16.2
@@ -8,3 +9,4 @@ scikit-learn==1.8.0
 kfp==2.12.2
 google_cloud_pipeline_components==2.22.0
 db-dtypes==1.5.0
+urllib3==1.26.20

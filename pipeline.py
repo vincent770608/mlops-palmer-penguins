@@ -13,12 +13,7 @@ from google_cloud_pipeline_components.v1.endpoint import EndpointCreateOp, Model
 # 這樣可以確保路徑是靜態字串，避免 KFP 執行時解析錯誤
 TRAINING_IMAGE_URI = os.environ.get("TRAINING_IMAGE_URI", "placeholder")
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "placeholder_bucket")
-
-# 預先組好路徑
 PIPELINE_ROOT = f"gs://{BUCKET_NAME}/pipeline_root"
-MODEL_BASE_DIR = f"{PIPELINE_ROOT}/model_output"  # 模型的主目錄
-MODEL_VERSION_DIR = f"{MODEL_BASE_DIR}/1"
-
 
 @dsl.container_component
 def custom_training_job(
@@ -39,8 +34,18 @@ def custom_training_job(
 @dsl.pipeline(name="penguin-training-pipeline")
 def pipeline(
         project_id: str,
+        run_id: str,
         serving_container_image_uri: str = "asia-east1-docker.pkg.dev/vincent-sandbox-470814/mlops-palmer-penguins/tf-serving:2.16"
 ):
+    # 動態組建路徑
+    # 這是 Importer 要看的地方 (父目錄)
+    # 例如: gs://.../model_output/commit-a1b2c3d
+    model_base_dir = f"{PIPELINE_ROOT}/model_output/{run_id}"
+
+    # 這是 Train 要寫入的地方 (子目錄，永遠叫 1)
+    # 例如: gs://.../model_output/commit-a1b2c3d/1
+    model_version_dir = f"{model_base_dir}/1"
+
     # 使用傳入的 bucket_name 變數
     # pipeline_root = f"gs://{bucket_name}/pipeline_root"
     # model_dir = f"{pipeline_root}/model_output"
@@ -49,7 +54,7 @@ def pipeline(
     # 實例化 component
     train_task = custom_training_job(
         project_id=project_id,
-        model_dir=MODEL_VERSION_DIR,
+        model_dir=model_version_dir,
         bucket_name=BUCKET_NAME
     )
     # 這裡覆寫 image，使用 CI/CD 傳進來的 image_uri
@@ -59,7 +64,7 @@ def pipeline(
 
     # Step 1.5: 將路徑轉為 Artifact (關鍵修正)
     import_unmanaged_model_task = importer(
-        artifact_uri=MODEL_BASE_DIR,
+        artifact_uri=model_base_dir,
         artifact_class=artifact_types.UnmanagedContainerModel,
         reimport=False,
         metadata={
@@ -99,10 +104,9 @@ def pipeline(
     ModelDeployOp(
         model=model_upload_op.outputs["model"],
         endpoint=endpoint_create_op.outputs["endpoint"],
-        dedicated_resources_machine_type="e2-standard-4",
+        dedicated_resources_machine_type="e2-standard-2",
         dedicated_resources_min_replica_count=1,
-        dedicated_resources_max_replica_count=1,
-        service_account="mlops-144@vincent-sandbox-470814.iam.gserviceaccount.com",
+        dedicated_resources_max_replica_count=1
     )
 
 
@@ -115,6 +119,6 @@ if __name__ == "__main__":
         pipeline_func=pipeline,
         package_path="pipeline.json",
         pipeline_parameters={
-            "project_id": args.project_id,
+            "project_id": args.project_id
         }
     )

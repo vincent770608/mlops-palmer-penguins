@@ -8,7 +8,8 @@ __pycache__/
 research/data
 static/
 data/
-model/
+model*
 venv/
 run_pipeline.py
 pipeline.json
+test*

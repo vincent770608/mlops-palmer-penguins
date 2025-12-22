@@ -20,8 +20,9 @@ steps:
       pip install kfp==2.12.2 google-cloud-pipeline-components==2.22.0 google-cloud-aiplatform==1.132.0
       
       # 編譯 Pipeline (產生 pipeline.json)
-      python pipeline.py \
-        --project_id $PROJECT_ID
+      # 編譯時不需要傳 run_id，因為它是 Pipeline 的 "執行參數" (Runtime Parameter)
+      # 這裡只要定義好結構即可
+      python pipeline.py --project_id $PROJECT_ID
     
       python -c "
       import google.cloud.aiplatform as aip;
@@ -32,6 +33,7 @@ steps:
           pipeline_root='gs://${_BUCKET_NAME}/pipeline_root', 
           parameter_values={
               'project_id': '$PROJECT_ID',
+              'run_id': '$SHORT_SHA',
           }
       )
       job.submit(
