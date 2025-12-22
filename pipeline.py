@@ -15,20 +15,51 @@ TRAINING_IMAGE_URI = os.environ.get("TRAINING_IMAGE_URI", "placeholder")
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "placeholder_bucket")
 PIPELINE_ROOT = f"gs://{BUCKET_NAME}/pipeline_root"
 
+
 @dsl.container_component
 def custom_training_job(
     project_id: str,
-    model_dir: str,
-    bucket_name: str
+    bucket_name: str,
+    model_output: dsl.Output[dsl.Model]
 ):
     return dsl.ContainerSpec(
         image=TRAINING_IMAGE_URI,
         args=[
             '--project_id', project_id,
-            '--model_dir', model_dir,
-            '--bucket_name', bucket_name
+            '--bucket_name', bucket_name,
+            # KFP 會自動生成一個路徑填入這裡，例如 gs://bucket/.../model_output
+            '--model_dir', model_output.uri
         ]
     )
+
+
+# Step 1.5: 新增一個「配置組件」 (關鍵救星！)
+# 它的工作很簡單：拿到模型 -> 加上啟動參數 Metadata -> 輸出模型
+@dsl.component(base_image="python:3.12")
+def configure_serving_metadata(
+        trained_model: dsl.Input[dsl.Model],
+        ready_model: dsl.Output[artifact_types.UnmanagedContainerModel],
+        serving_image_uri: str
+):
+    # 1. 直接複製路徑 (指向同一個 GCS 位置，不需要移動檔案)
+    ready_model.uri = trained_model.uri
+
+    # 2. 注入 Serving 設定 (這就是我們之前想塞給 Importer 的東西)
+    # Vertex AI 會讀取這個 metadata 來知道如何啟動容器
+    ready_model.metadata = {
+        "containerSpec": {
+            "imageUri": serving_image_uri,
+            "command": ["/usr/bin/tensorflow_model_server"],
+            "args": [
+                "--port=8500",
+                "--rest_api_port=8080",
+                "--model_name=default",
+                "--model_base_path=$(AIP_STORAGE_URI)"  # 這裡保持原樣，Vertex 會執行時替換
+            ],
+            "predictRoute": "/v1/models/default:predict",
+            "healthRoute": "/v1/models/default"
+        }
+    }
 
 
 @dsl.pipeline(name="penguin-training-pipeline")
@@ -54,7 +85,6 @@ def pipeline(
     # 實例化 component
     train_task = custom_training_job(
         project_id=project_id,
-        model_dir=model_version_dir,
         bucket_name=BUCKET_NAME
     )
     # 這裡覆寫 image，使用 CI/CD 傳進來的 image_uri
@@ -62,27 +92,12 @@ def pipeline(
     # 關閉快取 (Demo用)
     train_task.set_caching_options(False)
 
-    # Step 1.5: 將路徑轉為 Artifact (關鍵修正)
-    import_unmanaged_model_task = importer(
-        artifact_uri=model_base_dir,
-        artifact_class=artifact_types.UnmanagedContainerModel,
-        reimport=False,
-        metadata={
-            "containerSpec": {
-                "imageUri": serving_container_image_uri,
-                "command": ["/usr/bin/tensorflow_model_server"],
-                "args": [
-                    "--port=8500",
-                    "--rest_api_port=8080",
-                    "--model_name=default",
-                    # Vertex AI 會自動替換這個變數
-                    "--model_base_path=$(AIP_STORAGE_URI)"
-                ],
-                "predictRoute": "/v1/models/default:predict",
-                "healthRoute": "/v1/models/default"
-            }
-        }
-    ).after(train_task)
+    # Step 1.5: 將路徑轉為 Artifact
+    # 我們用這個小組件取代了 Importer
+    configure_task = configure_serving_metadata(
+        trained_model=train_task.outputs["model_output"],
+        serving_image_uri=serving_container_image_uri
+    )
 
     # 步驟 2: 上傳模型
     model_upload_op = ModelUploadOp(
@@ -90,8 +105,8 @@ def pipeline(
         display_name="penguin-model",
         location=location,
         # 使用 importer 的輸出
-        unmanaged_container_model=import_unmanaged_model_task.output,
-    ).after(import_unmanaged_model_task)
+        unmanaged_container_model=configure_task.outputs["ready_model"],
+    ).after(configure_task)
 
     # 步驟 3: 建立 Endpoint
     endpoint_create_op = EndpointCreateOp(
