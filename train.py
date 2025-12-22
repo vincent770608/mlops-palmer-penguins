@@ -1,10 +1,57 @@
 import os
 import argparse
 import pandas as pd
+import numpy as np
 import tensorflow as tf
 from google.cloud import bigquery
 from google.cloud import aiplatform
 import time
+
+# 定義特徵的配置
+NUMERICAL_FEATURES = ['culmen_length_mm', 'culmen_depth_mm', 'flipper_length_mm', 'body_mass_g']
+CATEGORICAL_FEATURES = ['island']
+# Label 不需要放進 Input，但需要做 One-Hot
+LABEL_COLUMN = 'species'
+
+
+def df_to_dataset(dataframe, shuffle=True, batch_size=32):
+    """
+    修正版：將 Pandas DF 轉換為 tf.data.Dataset
+    1. 強制轉換數值為 float32
+    2. 強制將 shape 從 (N,) 轉為 (N, 1) 以符合 Keras Input(shape=(1,))
+    """
+    df = dataframe.copy()
+    labels = df.pop(LABEL_COLUMN)
+
+    # Label One-Hot (保持不變)
+    labels = pd.get_dummies(labels, prefix=LABEL_COLUMN)
+
+    # --- 🔥 關鍵修正開始 🔥 ---
+    data_dict = {}
+
+    # 遍歷所有特徵欄位，手動調整形狀與型別
+    for name, value in df.items():
+        # 取出 numpy array
+        val = value.values
+
+        if name in NUMERICAL_FEATURES:
+            # 數值特徵：轉 float32 並增加一個維度
+            # 例如: [0.1, 0.5] -> [[0.1], [0.5]]
+            val = val.astype('float32')[:, np.newaxis]
+        else:
+            # 字串特徵：雖然不用轉 float，但也要增加維度
+            val = val[:, np.newaxis]
+
+        data_dict[name] = val
+    # --- 🔥 關鍵修正結束 🔥 ---
+
+    # 這裡傳入處理好的 data_dict
+    ds = tf.data.Dataset.from_tensor_slices((data_dict, labels))
+
+    if shuffle:
+        ds = ds.shuffle(buffer_size=len(dataframe))
+    ds = ds.batch(batch_size)
+    return ds
 
 
 def train_model(project_id, model_dir, bucket_name):
@@ -19,91 +66,90 @@ def train_model(project_id, model_dir, bucket_name):
     df = client.query(query).to_dataframe()
     df.dropna(inplace=True)
 
-    # --- [修改重點 1] 使用 One-Hot Encoding ---
-    # 對 Feature 'island' 做 One-Hot
-    # 原本: island 一個欄位 (0, 1, 2)
-    # 現在: 會變成三個欄位 (island_Biscoe, island_Dream, island_Torgersen)
-    df = pd.get_dummies(df, columns=['island'], prefix='island')
+    # 切分訓練與驗證集
+    train_df = df.sample(frac=0.8, random_state=0)
+    test_df = df.drop(train_df.index)
 
-    # 對 Target 'species' 做 One-Hot
-    # 原本: species 一個欄位 (0, 1, 2)
-    # 現在: 變成三個欄位 (species_Adelie Penguin (Pygoscelis adeliae), ...)
-    target_col_prefix = 'species'
-    df = pd.get_dummies(df, columns=['species'], prefix=target_col_prefix)
+    # 轉為 tf.data.Dataset
+    batch_size = 32
+    train_ds = df_to_dataset(train_df, batch_size=batch_size)
+    test_ds = df_to_dataset(test_df, shuffle=False, batch_size=batch_size)
 
-    # 分離特徵與標籤
-    # 找出所有開頭是 'species_' 的欄位當作 Label
-    label_cols = [c for c in df.columns if c.startswith(target_col_prefix)]
+    # --- 2. 建立模型 (包含前處理) ---
+    all_inputs = {}
+    encoded_features = []
 
-    train_dataset = df.sample(frac=0.8, random_state=0)
-    test_dataset = df.drop(train_dataset.index)
+    # A. 處理數值特徵
+    for header in NUMERICAL_FEATURES:
+        numeric_col = tf.keras.Input(shape=(1,), name=header, dtype="float32")
+        normalization_layer = tf.keras.layers.Normalization()
 
-    # 取出 Label (y) 和 Features (x)
-    train_labels = train_dataset[label_cols]
-    test_labels = test_dataset[label_cols]
+        # 🔥 修改：確保 adapt 用的資料也是 (N, 1) 且 float32
+        adapt_data = train_df[header].values.astype('float32')[:, np.newaxis]
+        normalization_layer.adapt(adapt_data)
 
-    train_features = train_dataset.drop(columns=label_cols)
-    test_features = test_dataset.drop(columns=label_cols)
+        encoded_numeric_col = normalization_layer(numeric_col)
+        all_inputs[header] = numeric_col
+        encoded_features.append(encoded_numeric_col)
 
-    print(f"Training features shape: {train_features.shape}")
-    print(f"Training labels shape: {train_labels.shape}")
+    # B. 處理類別特徵
+    for header in CATEGORICAL_FEATURES:
+        cat_col = tf.keras.Input(shape=(1,), name=header, dtype="string")
+        lookup_layer = tf.keras.layers.StringLookup(output_mode="one_hot")
 
-    # --- 2. 建立並訓練模型 ---
-    print("Training model...")
-    model = tf.keras.Sequential([
-        # input_shape 會自動抓取 Feature 數量 (現在變多了，因為 island 拆成了3個欄位)
-        tf.keras.layers.Dense(10, activation='relu', input_shape=[len(train_features.keys())]),
-        tf.keras.layers.Dense(10, activation='relu'),
-        # Output 層維持 3 (因為有 3 種企鵝)
-        tf.keras.layers.Dense(3, activation='softmax')
-    ])
+        # 🔥 修改：確保 adapt 用的資料也是 (N, 1)
+        adapt_data = train_df[header].values[:, np.newaxis]
+        lookup_layer.adapt(adapt_data)
 
-    # --- [修改重點 2] Loss Function 變更 ---
-    # 因為 Label 已經是 One-Hot 格式 (例如 [1, 0, 0])，所以用 categorical_crossentropy
-    # 如果 Label 是整數 (例如 0)，才用 sparse_categorical_crossentropy
-    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+        encoded_cat_col = lookup_layer(cat_col)
+        all_inputs[header] = cat_col
+        encoded_features.append(encoded_cat_col)
 
-    model.fit(train_features, train_labels, epochs=10, verbose=1)
+    # --- 組合模型 (Functional API) ---
+    all_features = tf.keras.layers.concatenate(encoded_features)
 
-    # --- 3. 評估與紀錄 Metadata ---
-    loss, accuracy = model.evaluate(test_features, test_labels, verbose=0)
+    x = tf.keras.layers.Dense(32, activation="relu")(all_features)
+    x = tf.keras.layers.Dense(32, activation="relu")(x)
+    output = tf.keras.layers.Dense(3, activation="softmax")(x)
+
+    # 建立模型，指定 Inputs (字典) 和 Outputs
+    model = tf.keras.Model(inputs=all_inputs, outputs=output)
+
+    model.compile(optimizer='adam',
+                  loss='categorical_crossentropy',
+                  metrics=['accuracy'])
+
+    # --- 3. 訓練 ---
+    model.fit(train_ds, epochs=10, validation_data=test_ds)
+
+    # --- 4. 評估與紀錄 ---
+    loss, accuracy = model.evaluate(test_ds)
     print(f"Test Accuracy: {accuracy}")
 
-    # 1. 產生一個不會重複的 Run ID (加上時間戳記)
+    # Vertex AI Logging (省略部分重複代碼...)
     timestamp = int(time.time())
     run_id = f"penguin-run-{timestamp}"
-
-    aiplatform.init(project=project_id,
-                    experiment='penguin-experiment',  # <--- 加上這行，指定實驗名稱
-                    location='asia-east1',
-                    staging_bucket=f'gs://{bucket_name}'  # (選填) 建議加上你的 bucket
-                    )
-
-    # [選填] 啟動一個 Run (回合)。
-    # 如果不寫 start_run，直接 log_metrics，Vertex AI SDK 通常會自動幫你產生一個隨機名稱的 Run
-    # 為了方便辨識，我們可以手動給一個前綴
+    aiplatform.init(project=project_id, experiment='penguin-experiment', location='asia-east1',
+                    staging_bucket=f'gs://{bucket_name.replace("gs://", "")}')
     aiplatform.start_run(run=run_id)
-
     aiplatform.log_metrics({"accuracy": accuracy, "loss": loss})
-    # 結束 Run
     aiplatform.end_run()
 
-    # --- 4. 儲存模型 ---
-    # 改用 tf.saved_model.save 來確保輸出格式是 SavedModel (資料夾)，
-    # 這樣無論在本地(Keras 3)還是雲端(Keras 2)都兼容，且符合 Vertex AI 需求。
+    # --- 5. 儲存模型 ---
+    print(f"Saving model to {model_dir}")
+    # export 會保存包含 StringLookup 和 Normalization 的完整模型
     try:
         model.export(model_dir)
     except AttributeError:
         # 如果環境不小心退回 Keras 2 (TF < 2.16)，export 不存在，改用 save
         tf.saved_model.save(model, model_dir)
-    print(f"Model saved to {model_dir}")
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--project_id', type=str, required=True)
     parser.add_argument('--model_dir', type=str, default=os.environ.get('AIP_MODEL_DIR'))
-    parser.add_argument('--bucket_name', type=str, required=True)
+    parser.add_argument('--bucket_name', type=str)
     args = parser.parse_args()
 
     train_model(args.project_id, args.model_dir, args.bucket_name)
