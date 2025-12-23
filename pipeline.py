@@ -20,7 +20,7 @@ PIPELINE_ROOT = f"gs://{BUCKET_NAME}/pipeline_root"
 def custom_training_job(
     project_id: str,
     bucket_name: str,
-    model_output: dsl.Output[dsl.Model]
+    model_dir_str: str
 ):
     return dsl.ContainerSpec(
         image=TRAINING_IMAGE_URI,
@@ -28,7 +28,7 @@ def custom_training_job(
             '--project_id', project_id,
             '--bucket_name', bucket_name,
             # KFP 會自動生成一個路徑填入這裡，例如 gs://bucket/.../model_output
-            '--model_dir', model_output.uri
+            '--model_dir', model_dir_str
         ]
     )
 
@@ -38,12 +38,12 @@ def custom_training_job(
 @dsl.component(base_image="python:3.12",
                packages_to_install=["google-cloud-pipeline-components==2.22.0"])
 def configure_serving_metadata(
-        trained_model: dsl.Input[dsl.Model],
+        model_uri: str,
         ready_model: dsl.Output[artifact_types.UnmanagedContainerModel],
         serving_image_uri: str
 ):
     # 1. 直接複製路徑 (指向同一個 GCS 位置，不需要移動檔案)
-    ready_model.uri = trained_model.uri
+    ready_model.uri = model_uri
 
     # 2. 注入 Serving 設定 (這就是我們之前想塞給 Importer 的東西)
     # Vertex AI 會讀取這個 metadata 來知道如何啟動容器
@@ -86,27 +86,27 @@ def pipeline(
     # 實例化 component
     train_task = custom_training_job(
         project_id=project_id,
-        bucket_name=BUCKET_NAME
+        bucket_name=BUCKET_NAME,
+        model_dir_str=model_version_dir  # 告訴 train.py 寫到這裡
     )
-    # 這裡覆寫 image，使用 CI/CD 傳進來的 image_uri
-    # train_task.image = image_uri
-    # 關閉快取 (Demo用)
     train_task.set_caching_options(False)
 
     # Step 1.5: 將路徑轉為 Artifact
     # 我們用這個小組件取代了 Importer
     configure_task = configure_serving_metadata(
-        trained_model=train_task.outputs["model_output"],
+        model_uri=model_base_dir,
         serving_image_uri=serving_container_image_uri
     )
+    # 重要：因為沒有資料流依賴 (Data Dependency)，我們必須手動加順序
+    # 確保訓練完之後，才去包裝模型
+    configure_task.after(train_task)
 
-    # 步驟 2: 上傳模型
+    # Step 2: 上傳
     model_upload_op = ModelUploadOp(
         project=project_id,
-        display_name="penguin-model",
+        display_name=f"penguin-model-{run_id}",  # 加上 ID 方便辨識
         location=location,
-        # 使用 importer 的輸出
-        unmanaged_container_model=configure_task.outputs["ready_model"],
+        unmanaged_container_model=configure_task.outputs["ready_model"]
     ).after(configure_task)
 
     # 步驟 3: 建立 Endpoint
