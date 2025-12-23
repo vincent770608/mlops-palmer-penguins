@@ -35,7 +35,8 @@ def custom_training_job(
 
 # Step 1.5: 新增一個「配置組件」 (關鍵救星！)
 # 它的工作很簡單：拿到模型 -> 加上啟動參數 Metadata -> 輸出模型
-@dsl.component(base_image="python:3.12")
+@dsl.component(base_image="python:3.12",
+               packages_to_install=["google-cloud-pipeline-components==2.22.0"])
 def configure_serving_metadata(
         trained_model: dsl.Input[dsl.Model],
         ready_model: dsl.Output[artifact_types.UnmanagedContainerModel],
