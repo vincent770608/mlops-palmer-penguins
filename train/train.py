@@ -27,6 +27,7 @@ CONFIG = {
         "LOSS_FUNC": "categorical_crossentropy"
     },
     "DATA_PATH": "penguin_data/20251225_195439/data.csv",
+    "BUCKET_NAME": "vincent-sandbox-mlops-palmer-penguins"
 }
 
 
@@ -55,7 +56,7 @@ def df_to_dataset(dataframe, shuffle, batch_size):
     return ds
 
 
-def train_model(project_id, model_dir, bucket_name):
+def train_model(project_id, model_dir, data_path, bucket_name):
     # # --- 1. 從 BigQuery 讀取資料 ---
     # print("Loading data from BigQuery...")
     # client = bigquery.Client(project=project_id)
@@ -69,7 +70,6 @@ def train_model(project_id, model_dir, bucket_name):
 
     # --- 1. 從 GCS 讀取資料 ---
     params = CONFIG["PARAMS"]
-    data_path = f"gs://{bucket_name.replace("gs://", "")}/{CONFIG["DATA_PATH"]}"
     print(f"Loading data from hardcoded path: {data_path}")
     try:
         df = pd.read_csv(data_path, encoding='utf-8')
@@ -174,10 +174,14 @@ def train_model(project_id, model_dir, bucket_name):
 
 
 if __name__ == '__main__':
+    data_path = f"gs://{CONFIG["BUCKET_NAME"].replace("gs://", "")}/{CONFIG["DATA_PATH"]}"
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--project_id', type=str, required=True)
     parser.add_argument('--model_dir', type=str, default=os.environ.get('AIP_MODEL_DIR'))
-    parser.add_argument('--bucket_name', type=str)
+    parser.add_argument('--data_path', type=str, default=data_path)
+    parser.add_argument('--bucket_name', type=str, default=CONFIG["BUCKET_NAME"])
+
     args = parser.parse_args()
 
-    train_model(args.project_id, args.model_dir, args.bucket_name)
+    train_model(args.project_id, args.model_dir, args.data_path, args.bucket_name)

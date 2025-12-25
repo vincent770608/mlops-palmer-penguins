@@ -26,17 +26,17 @@ def custom_training_job(
     project_id: str,
     bucket_name: str,
     dataset_input: dsl.Input[dsl.Dataset],
-    model_dir_str: str
+    model_dir_str: str,
 ):
     return dsl.ContainerSpec(
         image=TRAINING_IMAGE_URI,
         args=[
             '--project_id', project_id,
-            '--bucket_name', bucket_name,
+            '--model_dir', model_dir_str,
             # KFP 會自動把 Artifact 下載(或掛載)並將「本地路徑」傳進去
             # Data Scientist 不用管 GCS 路徑，直接當本地檔案讀即可
             '--data_path', dataset_input.path,
-            '--model_dir', model_dir_str
+            '--bucket_name', bucket_name,
         ]
     )
 
