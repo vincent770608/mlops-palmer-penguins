@@ -13,13 +13,19 @@ from google_cloud_pipeline_components.v1.endpoint import EndpointCreateOp, Model
 # 這樣可以確保路徑是靜態字串，避免 KFP 執行時解析錯誤
 TRAINING_IMAGE_URI = os.environ.get("TRAINING_IMAGE_URI", "placeholder")
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "placeholder_bucket")
-PIPELINE_ROOT = f"gs://{BUCKET_NAME}/pipeline_root"
+
+CONFIG = {
+    "BUCKET_NAME": BUCKET_NAME,
+    "PIPELINE_ROOT": f"gs://{BUCKET_NAME}/pipeline_root",
+    "DATA_PATH": "penguin_data/20251225_195439/data.csv",
+}
 
 
 @dsl.container_component
 def custom_training_job(
     project_id: str,
     bucket_name: str,
+    dataset_input: dsl.Input[dsl.Dataset],
     model_dir_str: str
 ):
     return dsl.ContainerSpec(
@@ -27,30 +33,13 @@ def custom_training_job(
         args=[
             '--project_id', project_id,
             '--bucket_name', bucket_name,
-            # KFP 會自動生成一個路徑填入這裡，例如 gs://bucket/.../model_output
+            # KFP 會自動把 Artifact 下載(或掛載)並將「本地路徑」傳進去
+            # Data Scientist 不用管 GCS 路徑，直接當本地檔案讀即可
+            '--data_path', dataset_input.path,
             '--model_dir', model_dir_str
         ]
     )
 
-
-# 定義一個組件專門做資料快照
-@dsl.component(packages_to_install=["google-cloud-bigquery", "pandas", "pyarrow"])
-def get_data_snapshot(
-        project_id: str,
-        query: str,
-        dataset_output: dsl.Output[dsl.Dataset]  # 這裡是關鍵，KFP 會自動追蹤這個 Dataset 物件
-):
-    from google.cloud import bigquery
-
-    client = bigquery.Client(project=project_id)
-    df = client.query(query).to_dataframe()
-
-    # 版控:將當下的資料存成檔案
-    df.to_csv(dataset_output.path, index=False)
-
-    # 紀錄 Metadata：例如你是撈哪個 Table、當下的時間點
-    dataset_output.metadata["source_query"] = query
-    dataset_output.metadata["row_count"] = len(df)
 
 # Step 1.5: 新增一個「配置組件」 (關鍵救星！)
 # 它的工作很簡單：拿到模型 -> 加上啟動參數 Metadata -> 輸出模型
@@ -88,27 +77,27 @@ def pipeline(
         run_id: str,
         serving_container_image_uri: str = "asia-east1-docker.pkg.dev/vincent-sandbox-470814/mlops-palmer-penguins/tf-serving:2.16"
 ):
-    # 動態組建路徑
-    # 這是 Importer 要看的地方 (父目錄)
-    # 例如: gs://.../model_output/commit-a1b2c3d
-    model_base_dir = f"{PIPELINE_ROOT}/model_output/{run_id}"
-
-    # 這是 Train 要寫入的地方 (子目錄，永遠叫 1)
-    # 例如: gs://.../model_output/commit-a1b2c3d/1
+    data_path = f"gs://{CONFIG["BUCKET_NAME"].replace("gs://", "")}/{CONFIG["DATA_PATH"]}"
+    model_base_dir = f"{CONFIG["PIPELINE_ROOT"]}/model_output/{run_id}" # Importer 要看的地方 (父目錄)
     model_version_dir = f"{model_base_dir}/1"
 
-    # 使用傳入的 bucket_name 變數
-    # pipeline_root = f"gs://{bucket_name}/pipeline_root"
-    # model_dir = f"{pipeline_root}/model_output"
     location = "asia-east1"
     model_display_name = "penguin-model"
+
+    import_data_task = importer(
+        artifact_uri=data_path,
+        artifact_class=dsl.Dataset,
+        reimport=False,
+        metadata={"version": "v1_imported"}  # 你可以加註解
+    )
 
     # 步驟 1: 訓練
     # 實例化 component
     train_task = custom_training_job(
         project_id=project_id,
         bucket_name=BUCKET_NAME,
-        model_dir_str=model_version_dir  # 告訴 train.py 寫到這裡
+        dataset_input=import_data_task.output,
+        model_dir_str=model_version_dir
     )
     train_task.set_caching_options(False)
 
@@ -127,7 +116,11 @@ def pipeline(
         project=project_id,
         display_name=model_display_name,
         location=location,
-        unmanaged_container_model=configure_task.outputs["ready_model"]
+        unmanaged_container_model=configure_task.outputs["ready_model"],
+        labels={
+            "data_version": data_path,
+            "train_run": run_id
+        }
     ).after(configure_task)
 
     # 步驟 3: 建立 Endpoint
@@ -141,7 +134,7 @@ def pipeline(
     ModelDeployOp(
         model=model_upload_op.outputs["model"],
         endpoint=endpoint_create_op.outputs["endpoint"],
-        dedicated_resources_machine_type="e2-medium",
+        dedicated_resources_machine_type="e2-standard-2",
         dedicated_resources_min_replica_count=0,
         dedicated_resources_max_replica_count=1
     )
