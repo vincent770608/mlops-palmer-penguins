@@ -33,6 +33,25 @@ def custom_training_job(
     )
 
 
+# 定義一個組件專門做資料快照
+@dsl.component(packages_to_install=["google-cloud-bigquery", "pandas", "pyarrow"])
+def get_data_snapshot(
+        project_id: str,
+        query: str,
+        dataset_output: dsl.Output[dsl.Dataset]  # 這裡是關鍵，KFP 會自動追蹤這個 Dataset 物件
+):
+    from google.cloud import bigquery
+
+    client = bigquery.Client(project=project_id)
+    df = client.query(query).to_dataframe()
+
+    # 版控:將當下的資料存成檔案
+    df.to_csv(dataset_output.path, index=False)
+
+    # 紀錄 Metadata：例如你是撈哪個 Table、當下的時間點
+    dataset_output.metadata["source_query"] = query
+    dataset_output.metadata["row_count"] = len(df)
+
 # Step 1.5: 新增一個「配置組件」 (關鍵救星！)
 # 它的工作很簡單：拿到模型 -> 加上啟動參數 Metadata -> 輸出模型
 @dsl.component(base_image="python:3.12",
@@ -82,6 +101,8 @@ def pipeline(
     # pipeline_root = f"gs://{bucket_name}/pipeline_root"
     # model_dir = f"{pipeline_root}/model_output"
     location = "asia-east1"
+    model_display_name = "penguin-model"
+
     # 步驟 1: 訓練
     # 實例化 component
     train_task = custom_training_job(
@@ -104,7 +125,7 @@ def pipeline(
     # Step 2: 上傳
     model_upload_op = ModelUploadOp(
         project=project_id,
-        display_name=f"penguin-model-{run_id}",  # 加上 ID 方便辨識
+        display_name=model_display_name,
         location=location,
         unmanaged_container_model=configure_task.outputs["ready_model"]
     ).after(configure_task)
@@ -120,8 +141,8 @@ def pipeline(
     ModelDeployOp(
         model=model_upload_op.outputs["model"],
         endpoint=endpoint_create_op.outputs["endpoint"],
-        dedicated_resources_machine_type="e2-standard-2",
-        dedicated_resources_min_replica_count=1,
+        dedicated_resources_machine_type="e2-medium",
+        dedicated_resources_min_replica_count=0,
         dedicated_resources_max_replica_count=1
     )
 

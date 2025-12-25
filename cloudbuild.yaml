@@ -22,7 +22,7 @@ steps:
       # 編譯 Pipeline (產生 pipeline.json)
       # 編譯時不需要傳 run_id，因為它是 Pipeline 的 "執行參數" (Runtime Parameter)
       # 這裡只要定義好結構即可
-      python pipeline.py --project_id $PROJECT_ID
+      python pipelines/pipeline.py --project_id $PROJECT_ID
     
       python -c "
       import google.cloud.aiplatform as aip;
