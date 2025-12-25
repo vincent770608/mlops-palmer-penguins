@@ -10,3 +10,5 @@ kfp==2.12.2
 google_cloud_pipeline_components==2.22.0
 db-dtypes==1.5.0
 urllib3==1.26.20
+google-cloud-storage==2.19.0
+gcsfs==2025.12.0
