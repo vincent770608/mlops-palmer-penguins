@@ -151,7 +151,7 @@ def train_model(project_id, model_dir, bucket_name):
                     staging_bucket=f'gs://{bucket_name.replace("gs://", "")}')
     aiplatform.start_run(run=run_id)
 
-    params_to_log = {}
+    params_to_log = {"DATA_PATH": data_path}
     for key, value in params.items():
         # 如果是 list 或 dict，就轉成字串
         if isinstance(value, (list, dict)):
