@@ -184,4 +184,4 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    train_model(args.project_id, args.model_dir, args.data_path, args.bucket_name)
+    train_model(args.project_id, args.bucket_name, args.data_path, args.model_dir)

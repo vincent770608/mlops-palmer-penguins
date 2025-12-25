@@ -18,6 +18,7 @@ CONFIG = {
     "BUCKET_NAME": BUCKET_NAME,
     "PIPELINE_ROOT": f"gs://{BUCKET_NAME}/pipeline_root",
     "DATA_PATH": "penguin_data/20251225_195439/data.csv",
+    "DATA_VERSION": "20251225_195439"
 }
 
 
@@ -118,7 +119,7 @@ def pipeline(
         location=location,
         unmanaged_container_model=configure_task.outputs["ready_model"],
         labels={
-            "data_version": data_path,
+            "data_version": CONFIG["DATA_VERSION"],
             "train_run": run_id
         }
     ).after(configure_task)
