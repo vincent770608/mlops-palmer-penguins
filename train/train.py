@@ -56,7 +56,7 @@ def df_to_dataset(dataframe, shuffle, batch_size):
     return ds
 
 
-def train_model(project_id, model_dir, data_path, bucket_name):
+def train_model(project_id, bucket_name, data_path, model_dir):
     # # --- 1. 從 BigQuery 讀取資料 ---
     # print("Loading data from BigQuery...")
     # client = bigquery.Client(project=project_id)
